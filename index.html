@@ -1226,9 +1226,13 @@
       async function apiPost(bodyObj) {
         const resp = await fetch(API_URL, {
           method: "POST",
+          redirect: "follow",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(bodyObj),
         });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
         const json = await resp.json();
         if (!json.ok) throw new Error(json.error || "Permintaan gagal");
         return json.result;
@@ -1240,7 +1244,13 @@
         btn.textContent = "↻ ...";
 
         try {
-          const resp = await fetch(`${API_URL}?t=${Date.now()}`);
+          const resp = await fetch(`${API_URL}?t=${Date.now()}`, {
+            method: "GET",
+            redirect: "follow",
+          });
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+          }
           const json = await resp.json();
           if (!json.ok) throw new Error(json.error || "Gagal memuat data");
 
@@ -1250,14 +1260,14 @@
           renderHeroAndStats();
           renderList();
         } catch (err) {
+          const detail = err && err.message ? err.message : "Gagal memuat";
           document.getElementById("trxList").innerHTML =
-            `<div class="empty">Error: ${esc(err.message)}</div>`;
+            `<div class="empty">Error: ${esc(detail)}<br><small>Cek akses Anyone di Apps Script atau matikan blocker/VPN di Safari, lalu tekan ↻ Sync.</small></div>`;
         } finally {
           btn.disabled = false;
           btn.textContent = "↻ Sync";
         }
       }
-
       function openAdd() {
         document.getElementById("trxForm").reset();
         refreshFormDropdowns("", masterSumberDana[0] || "");
