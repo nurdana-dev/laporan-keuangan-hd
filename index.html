@@ -284,7 +284,6 @@
         color: var(--expense);
       }
 
-      /* Tab Bulan Ini (Rekap) */
       .stat-card {
         width: 100%;
         background: var(--card);
@@ -328,7 +327,6 @@
         border-radius: 999px;
       }
 
-      /* Bottom Nav & FAB */
       .bottom-nav {
         position: fixed;
         bottom: 0;
@@ -373,7 +371,6 @@
         z-index: 35;
       }
 
-      /* Modal Form & Pengaturan */
       .modal-backdrop {
         display: none;
         position: fixed;
@@ -959,7 +956,24 @@
           .join("");
       }
 
-      window.editMasterItem = function (index) {
+      async function syncMasterToSheet() {
+        saveMasterList("kategori", masterKategori);
+        saveMasterList("sumberDana", masterSumberDana);
+        try {
+          await apiPost({
+            action: "saveMaster",
+            kategori: masterKategori,
+            sumberDana: masterSumberDana,
+          });
+        } catch (err) {
+          alert(
+            "Tersimpan di perangkat, tapi gagal sinkron ke Sheet: " +
+              err.message,
+          );
+        }
+      }
+
+      window.editMasterItem = async function (index) {
         const isCat = activeMasterTab === "kategori";
         const list = isCat ? masterKategori : masterSumberDana;
         const currentName = list[index];
@@ -988,17 +1002,16 @@
         updated[index] = nextName;
         if (isCat) {
           masterKategori = updated;
-          saveMasterList("kategori", masterKategori);
         } else {
           masterSumberDana = updated;
-          saveMasterList("sumberDana", masterSumberDana);
         }
 
         refreshFormDropdowns();
         renderMasterModal();
+        await syncMasterToSheet();
       };
 
-      window.deleteMasterItem = function (index) {
+      window.deleteMasterItem = async function (index) {
         const isCat = activeMasterTab === "kategori";
         const list = isCat ? masterKategori : masterSumberDana;
         const target = list[index];
@@ -1012,13 +1025,12 @@
         const updated = list.filter((_, i) => i !== index);
         if (isCat) {
           masterKategori = updated;
-          saveMasterList("kategori", masterKategori);
         } else {
           masterSumberDana = updated;
-          saveMasterList("sumberDana", masterSumberDana);
         }
         refreshFormDropdowns();
         renderMasterModal();
+        await syncMasterToSheet();
       };
 
       function todayISO() {
@@ -1084,6 +1096,18 @@
         return (Number(b.rowNumber) || 0) - (Number(a.rowNumber) || 0);
       }
 
+      function getRowAmounts(item) {
+        const exp = Math.abs(Number(item.pengeluaran) || 0);
+        const inc = Math.abs(Number(item.pemasukan) || 0);
+        if (exp > 0) {
+          return { isIncome: false, exp, inc: 0 };
+        }
+        if (inc > 0) {
+          return { isIncome: true, exp: 0, inc };
+        }
+        return { isIncome: false, exp: 0, inc: 0 };
+      }
+
       function setJenis(jenis) {
         document.getElementById("jenisInput").value = jenis;
         document.querySelectorAll(".seg-btn[data-jenis]").forEach((b) => {
@@ -1100,15 +1124,21 @@
 
       function renderHeroAndStats() {
         const monthItems = getCurrentMonthItems();
-        const totalExp = monthItems.reduce((s, x) => s + x.pengeluaran, 0);
-        const totalInc = monthItems.reduce((s, x) => s + x.pemasukan, 0);
+        const totalExp = monthItems.reduce(
+          (s, x) => s + getRowAmounts(x).exp,
+          0,
+        );
+        const totalInc = monthItems.reduce(
+          (s, x) => s + getRowAmounts(x).inc,
+          0,
+        );
 
         const needs = monthItems
           .filter((x) => x.tipeKebutuhan === "Needs")
-          .reduce((s, x) => s + x.pengeluaran, 0);
+          .reduce((s, x) => s + getRowAmounts(x).exp, 0);
         const wants = monthItems
           .filter((x) => x.tipeKebutuhan === "Wants")
-          .reduce((s, x) => s + x.pengeluaran, 0);
+          .reduce((s, x) => s + getRowAmounts(x).exp, 0);
         const nwTotal = needs + wants;
         const needsPct = nwTotal ? Math.round((needs / nwTotal) * 100) : 0;
         const wantsPct = nwTotal ? 100 - needsPct : 0;
@@ -1127,9 +1157,10 @@
         const container = document.getElementById(elId);
         const map = {};
         items.forEach((x) => {
-          if (x.pengeluaran > 0) {
+          const { exp } = getRowAmounts(x);
+          if (exp > 0) {
             const k = x[key] || "Lainnya";
-            map[k] = (map[k] || 0) + x.pengeluaran;
+            map[k] = (map[k] || 0) + exp;
           }
         });
         const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
@@ -1159,9 +1190,9 @@
             const q = searchQuery.toLowerCase();
             const matchQuery =
               !q ||
-              item.uraian.toLowerCase().includes(q) ||
-              item.kategori.toLowerCase().includes(q) ||
-              item.sumberDana.toLowerCase().includes(q);
+              String(item.uraian || "").toLowerCase().includes(q) ||
+              String(item.kategori || "").toLowerCase().includes(q) ||
+              String(item.sumberDana || "").toLowerCase().includes(q);
             return matchPic && matchQuery;
           })
           .sort(compareNewestFirst);
@@ -1183,14 +1214,17 @@
         groups.forEach((rows) => {
           const sortedRows = [...rows].sort(compareNewestFirst);
           const rawDate = sortedRows[0].tanggal;
-          const dayExp = sortedRows.reduce((s, r) => s + r.pengeluaran, 0);
+          const dayExp = sortedRows.reduce(
+            (s, r) => s + getRowAmounts(r).exp,
+            0,
+          );
 
           const cards = sortedRows
             .map((r) => {
-              const isInc = r.pemasukan > 0;
-              const amountHtml = isInc
-                ? `<div class="amt-inc">+${r.pemasukan.toLocaleString("id-ID")}</div>`
-                : `<div class="amt-exp">-${r.pengeluaran.toLocaleString("id-ID")}</div>`;
+              const { isIncome, exp, inc } = getRowAmounts(r);
+              const amountHtml = isIncome
+                ? `<div class="amt-inc">+${inc.toLocaleString("id-ID")}</div>`
+                : `<div class="amt-exp">-${exp.toLocaleString("id-ID")}</div>`;
 
               return `
             <div class="trx-card">
@@ -1246,7 +1280,7 @@
         btn.textContent = "↻ ...";
 
         try {
-          const resp = await fetch(`${API_URL}?t=${Date.now()}`, {
+          const resp = await fetch(`${API_URL}?action=read&t=${Date.now()}`, {
             method: "GET",
             redirect: "follow",
           });
@@ -1255,6 +1289,31 @@
           }
           const json = await resp.json();
           if (!json.ok) throw new Error(json.error || "Gagal memuat data");
+
+          if (json.master) {
+            if (
+              Array.isArray(json.master.kategori) &&
+              json.master.kategori.length
+            ) {
+              masterKategori = json.master.kategori;
+              saveMasterList("kategori", masterKategori);
+            }
+            if (
+              Array.isArray(json.master.sumberDana) &&
+              json.master.sumberDana.length
+            ) {
+              masterSumberDana = json.master.sumberDana;
+              saveMasterList("sumberDana", masterSumberDana);
+            }
+            refreshFormDropdowns();
+            if (
+              document
+                .getElementById("masterBackdrop")
+                .classList.contains("open")
+            ) {
+              renderMasterModal();
+            }
+          }
 
           allData = Array.isArray(json.data)
             ? json.data.sort(compareNewestFirst)
@@ -1270,6 +1329,7 @@
           btn.textContent = "↻ Sync";
         }
       }
+
       function openAdd() {
         document.getElementById("trxForm").reset();
         refreshFormDropdowns("", masterSumberDana[0] || "");
@@ -1295,11 +1355,9 @@
         document.getElementById("kategoriInput").value = item.kategori;
         document.getElementById("uraianInput").value = item.uraian;
 
-        const isInc = item.pemasukan > 0;
-        setJenis(isInc ? "income" : "expense");
-        document.getElementById("nominalInput").value = isInc
-          ? item.pemasukan
-          : item.pengeluaran;
+        const { isIncome, exp, inc } = getRowAmounts(item);
+        setJenis(isIncome ? "income" : "expense");
+        document.getElementById("nominalInput").value = isIncome ? inc : exp;
 
         document.getElementById("picInput").value = item.pic;
         document.getElementById("sumberDanaInput").value = item.sumberDana;
@@ -1358,7 +1416,7 @@
 
       document
         .getElementById("addMasterItemBtn")
-        .addEventListener("click", () => {
+        .addEventListener("click", async () => {
           const input = document.getElementById("newMasterInput");
           const val = input.value.trim();
           if (!val) return;
@@ -1376,15 +1434,14 @@
           const updated = [...list, val];
           if (isCat) {
             masterKategori = updated;
-            saveMasterList("kategori", masterKategori);
           } else {
             masterSumberDana = updated;
-            saveMasterList("sumberDana", masterSumberDana);
           }
 
           input.value = "";
           refreshFormDropdowns();
           renderMasterModal();
+          await syncMasterToSheet();
         });
 
       document
@@ -1398,20 +1455,19 @@
 
       document
         .getElementById("resetMasterBtn")
-        .addEventListener("click", () => {
+        .addEventListener("click", async () => {
           const label =
             activeMasterTab === "kategori" ? "kategori" : "sumber dana";
           if (!confirm(`Kembalikan daftar ${label} ke bawaan awal?`)) return;
 
           if (activeMasterTab === "kategori") {
             masterKategori = [...DEFAULT_KATEGORI];
-            saveMasterList("kategori", masterKategori);
           } else {
             masterSumberDana = [...DEFAULT_SUMBER_DANA];
-            saveMasterList("sumberDana", masterSumberDana);
           }
           refreshFormDropdowns();
           renderMasterModal();
+          await syncMasterToSheet();
         });
 
       document.getElementById("picFilters").addEventListener("click", (e) => {
@@ -1470,19 +1526,6 @@
 
       refreshFormDropdowns("", masterSumberDana[0] || "");
       loadData();
-      async function syncMasterToSheet() {
-        saveMasterList('kategori', masterKategori);
-        saveMasterList('sumberDana', masterSumberDana);
-        try {
-          await apiPost({
-            action: 'saveMaster',
-            kategori: masterKategori,
-            sumberDana: masterSumberDana
-          });
-        } catch (err) {
-          alert('Tersimpan di perangkat, tapi gagal sinkron ke Sheet: ' + err.message);
-        }
-      }
     </script>
   </body>
 </html>
