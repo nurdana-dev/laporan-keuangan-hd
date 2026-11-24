@@ -493,8 +493,19 @@ async function apiPost(bodyObj) {
 
 async function loadData() {
   const btn = document.getElementById("refreshBtn");
-  btn.disabled = true;
-  btn.textContent = "↻ ...";
+  const listEl = document.getElementById("trxList");
+  const labelEl = btn ? btn.querySelector(".sync-label") : null;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("syncing");
+    if (labelEl) labelEl.textContent = "Sync...";
+  }
+
+  if (listEl) {
+    listEl.innerHTML =
+      '<div class="empty">Memuat data dari Google Sheets...</div>';
+  }
 
   try {
     const resp = await fetch(`${API_URL}?action=read&t=${Date.now()}`, {
@@ -539,11 +550,15 @@ async function loadData() {
     renderList();
   } catch (err) {
     const detail = err && err.message ? err.message : "Gagal memuat";
-    document.getElementById("trxList").innerHTML =
-      `<div class="empty">Error: ${esc(detail)}<br><small>Cek akses Anyone di Apps Script atau matikan blocker/VPN di Safari, lalu tekan ↻ Sync.</small></div>`;
+    if (listEl) {
+      listEl.innerHTML = `<div class="empty">Error: ${esc(detail)}<br><small>Cek akses Anyone di Apps Script atau matikan blocker/VPN di Safari, lalu tekan ↻ Sync.</small></div>`;
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = "↻ Sync";
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("syncing");
+      if (labelEl) labelEl.textContent = "Sync";
+    }
   }
 }
 
