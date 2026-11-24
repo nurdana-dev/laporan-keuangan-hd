@@ -588,6 +588,11 @@
     // GANTI URL DI BAWAH INI DENGAN WEB APP URL DARI GOOGLE APPS SCRIPT
     const API_URL = 'https://script.google.com/macros/s/AKfycbzFjomVWd23La1f_F7NUMqignYCitGjFTQr_mZ9VAUopnOwPxpdRwQ6WvKIk6vtwiJKbA/exec';
 
+    const BULAN_ID = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+
     let allData = [];
     let selectedPic = 'ALL';
     let searchQuery = '';
@@ -606,6 +611,21 @@
     function todayISO() {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function formatTanggalIndo(isoStr) {
+      const m = String(isoStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return isoStr || '-';
+      const tahun = m[1];
+      const bulanIdx = Number(m[2]) - 1;
+      const tgl = Number(m[3]);
+      const namaBulan = BULAN_ID[bulanIdx] || m[2];
+      return `${tgl} ${namaBulan} ${tahun}`;
+    }
+
+    function compareNewestFirst(a, b) {
+      if (a.tanggal !== b.tanggal) return b.tanggal.localeCompare(a.tanggal);
+      return (Number(b.rowNumber) || 0) - (Number(a.rowNumber) || 0);
     }
 
     function setJenis(jenis) {
@@ -669,32 +689,36 @@
 
     function renderList() {
       const listEl = document.getElementById('trxList');
-      const filtered = allData.filter(item => {
-        const matchPic = selectedPic === 'ALL' || item.pic === selectedPic;
-        const q = searchQuery.toLowerCase();
-        const matchQuery = !q ||
-          item.uraian.toLowerCase().includes(q) ||
-          item.kategori.toLowerCase().includes(q) ||
-          item.sumberDana.toLowerCase().includes(q);
-        return matchPic && matchQuery;
-      });
+      const filtered = allData
+        .filter(item => {
+          const matchPic = selectedPic === 'ALL' || item.pic === selectedPic;
+          const q = searchQuery.toLowerCase();
+          const matchQuery = !q ||
+            item.uraian.toLowerCase().includes(q) ||
+            item.kategori.toLowerCase().includes(q) ||
+            item.sumberDana.toLowerCase().includes(q);
+          return matchPic && matchQuery;
+        })
+        .sort(compareNewestFirst);
 
       if (!filtered.length) {
         listEl.innerHTML = '<div class="empty">Tidak ada transaksi yang cocok.</div>';
         return;
       }
 
-      const groups = {};
+      const groups = new Map();
       filtered.forEach(item => {
-        if (!groups[item.tanggal]) groups[item.tanggal] = [];
-        groups[item.tanggal].push(item);
+        const key = item.tanggal || '';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(item);
       });
 
-      listEl.innerHTML = Object.keys(groups).map(tgl => {
-        const rows = groups[tgl];
-        const dayExp = rows.reduce((s, r) => s + r.pengeluaran, 0);
+      const htmlParts = [];
+      groups.forEach((rows, tgl) => {
+        const sortedRows = [...rows].sort(compareNewestFirst);
+        const dayExp = sortedRows.reduce((s, r) => s + r.pengeluaran, 0);
 
-        const cards = rows.map(r => {
+        const cards = sortedRows.map(r => {
           const isInc = r.pemasukan > 0;
           const amountHtml = isInc
             ? `<div class="amt-inc">+${r.pemasukan.toLocaleString('id-ID')}</div>`
@@ -718,16 +742,18 @@
           `;
         }).join('');
 
-        return `
+        htmlParts.push(`
           <div class="date-group">
             <div class="date-header">
-              <span>${esc(tgl)}</span>
+              <span>${esc(formatTanggalIndo(tgl))}</span>
               <span class="date-badge">${dayExp.toLocaleString('id-ID')}</span>
             </div>
             ${cards}
           </div>
-        `;
-      }).join('');
+        `);
+      });
+
+      listEl.innerHTML = htmlParts.join('');
     }
 
     async function apiPost(bodyObj) {
@@ -754,7 +780,7 @@
         const json = await resp.json();
         if (!json.ok) throw new Error(json.error || 'Gagal memuat data');
 
-        allData = Array.isArray(json.data) ? json.data : [];
+        allData = Array.isArray(json.data) ? json.data.sort(compareNewestFirst) : [];
         renderHeroAndStats();
         renderList();
       } catch (err) {
