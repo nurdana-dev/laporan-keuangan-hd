@@ -1470,6 +1470,19 @@
 
       refreshFormDropdowns("", masterSumberDana[0] || "");
       loadData();
+      async function syncMasterToSheet() {
+        saveMasterList('kategori', masterKategori);
+        saveMasterList('sumberDana', masterSumberDana);
+        try {
+          await apiPost({
+            action: 'saveMaster',
+            kategori: masterKategori,
+            sumberDana: masterSumberDana
+          });
+        } catch (err) {
+          alert('Tersimpan di perangkat, tapi gagal sinkron ke Sheet: ' + err.message);
+        }
+      }
     </script>
   </body>
 </html>
