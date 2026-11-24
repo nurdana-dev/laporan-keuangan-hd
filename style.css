@@ -587,3 +587,27 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+@keyframes spinSync {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sync-icon {
+  display: inline-block;
+  line-height: 1;
+}
+
+.icon-btn.syncing .sync-icon {
+  animation: spinSync 0.8s linear infinite;
+}
