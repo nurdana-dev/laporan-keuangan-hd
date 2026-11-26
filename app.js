@@ -814,3 +814,107 @@ if (cachedTrx.length) {
 
 refreshFormDropdowns("", masterSumberDana[0] || "");
 loadData();
+(function initPullToSync() {
+  const PULL_THRESHOLD = 70;
+  const MAX_PULL = 110;
+
+  const indicator = document.getElementById("pullIndicator");
+  const pullText = document.getElementById("pullText");
+  const refreshBtn = document.getElementById("refreshBtn");
+
+  if (!indicator || !pullText) return;
+
+  let startY = 0;
+  let startX = 0;
+  let pulling = false;
+  let pullDistance = 0;
+
+  function isModalOpen() {
+    return (
+      document.getElementById("modalBackdrop")?.classList.contains("open") ||
+      document.getElementById("masterBackdrop")?.classList.contains("open")
+    );
+  }
+
+  function isSyncing() {
+    return Boolean(refreshBtn && refreshBtn.disabled);
+  }
+
+  function resetIndicator() {
+    pulling = false;
+    pullDistance = 0;
+    indicator.classList.remove("visible", "ready");
+    indicator.style.height = "0px";
+    pullText.textContent = "Tarik ke bawah untuk sync";
+  }
+
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      if (isModalOpen() || isSyncing()) return;
+      if (window.scrollY > 0) return;
+      if (!e.touches || e.touches.length !== 1) return;
+
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      pulling = true;
+      pullDistance = 0;
+    },
+    { passive: true }
+  );
+
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!pulling || isModalOpen() || isSyncing()) return;
+      if (window.scrollY > 0) {
+        resetIndicator();
+        return;
+      }
+      if (!e.touches || e.touches.length !== 1) return;
+
+      const currentY = e.touches[0].clientY;
+      const currentX = e.touches[0].clientX;
+      const dy = currentY - startY;
+      const dx = Math.abs(currentX - startX);
+
+      if (dy <= 0) {
+        resetIndicator();
+        return;
+      }
+
+      if (dx > dy * 1.2 && pullDistance === 0) {
+        pulling = false;
+        return;
+      }
+
+      pullDistance = Math.min(MAX_PULL, dy * 0.55);
+      indicator.classList.add("visible");
+      indicator.style.height = `${Math.round(pullDistance)}px`;
+
+      if (pullDistance >= PULL_THRESHOLD) {
+        indicator.classList.add("ready");
+        pullText.textContent = "Lepas untuk sync";
+      } else {
+        indicator.classList.remove("ready");
+        pullText.textContent = "Tarik ke bawah untuk sync";
+      }
+    },
+    { passive: true }
+  );
+
+  document.addEventListener(
+    "touchend",
+    () => {
+      if (!pulling) return;
+      const shouldSync = pullDistance >= PULL_THRESHOLD && !isSyncing();
+      resetIndicator();
+      if (shouldSync) {
+        loadData();
+      }
+    },
+    { passive: true }
+  );
+
+  document.addEventListener("touchcancel", resetIndicator, { passive: true });
+})();
