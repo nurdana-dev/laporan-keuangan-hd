@@ -635,3 +635,25 @@ body {
   color: #991b1b;
   vertical-align: middle;
 }
+
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: height 0.18s ease, opacity 0.18s ease;
+}
+
+.pull-indicator.visible {
+  opacity: 1;
+}
+
+.pull-indicator.ready {
+  color: var(--primary);
+}
