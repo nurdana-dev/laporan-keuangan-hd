@@ -1,4 +1,3 @@
-
 const API_URL =
   "https://script.google.com/macros/s/AKfycbzFjomVWd23La1f_F7NUMqignYCitGjFTQr_mZ9VAUopnOwPxpdRwQ6WvKIk6vtwiJKbA/exec";
 
@@ -6,6 +5,8 @@ const STORAGE_KEYS = {
   kategori: "hd_master_kategori_v1",
   sumberDana: "hd_master_sumber_dana_v1",
 };
+
+const TRX_CACHE_KEY = "hd_trx_cache_v1";
 
 const DEFAULT_KATEGORI = [
   "Food and Beverage",
@@ -84,9 +85,7 @@ function loadMasterList(type, fallback) {
     const raw = localStorage.getItem(STORAGE_KEYS[type]);
     if (!raw) return [...fallback];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length
-      ? parsed
-      : [...fallback];
+    return Array.isArray(parsed) && parsed.length ? parsed : [...fallback];
   } catch (_) {
     return [...fallback];
   }
@@ -95,6 +94,26 @@ function loadMasterList(type, fallback) {
 function saveMasterList(type, list) {
   try {
     localStorage.setItem(STORAGE_KEYS[type], JSON.stringify(list));
+  } catch (_) {}
+}
+
+function loadCachedTransactions() {
+  try {
+    const raw = localStorage.getItem(TRX_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveCachedTransactions(list) {
+  try {
+    const clean = (Array.isArray(list) ? list : []).filter(
+      (x) => !x._pendingSync
+    );
+    localStorage.setItem(TRX_CACHE_KEY, JSON.stringify(clean));
   } catch (_) {}
 }
 
@@ -121,12 +140,7 @@ function refreshFormDropdowns(keepCat = "", keepSrc = "") {
   const srcSel = document.getElementById("sumberDanaInput");
   const curCat = keepCat || catSel.value;
   const curSrc = keepSrc || srcSel.value;
-  syncSelectOptions(
-    catSel,
-    masterKategori,
-    curCat,
-    "-- Pilih Kategori --",
-  );
+  syncSelectOptions(catSel, masterKategori, curCat, "-- Pilih Kategori --");
   syncSelectOptions(srcSel, masterSumberDana, curSrc, "");
 }
 
@@ -139,10 +153,7 @@ function renderMasterModal() {
     : "Nama sumber dana baru...";
 
   document.querySelectorAll("[data-master]").forEach((btn) => {
-    btn.classList.toggle(
-      "active",
-      btn.dataset.master === activeMasterTab,
-    );
+    btn.classList.toggle("active", btn.dataset.master === activeMasterTab);
   });
 
   const listEl = document.getElementById("masterList");
@@ -155,14 +166,14 @@ function renderMasterModal() {
   listEl.innerHTML = list
     .map(
       (name, idx) => `
-  <div class="option-row">
-    <span class="option-name">${esc(name)}</span>
-    <div class="option-btns">
-      <button type="button" class="btn-edit-item" onclick="editMasterItem(${idx})">Edit</button>
-      <button type="button" class="btn-del-item" onclick="deleteMasterItem(${idx})">Hapus</button>
+    <div class="option-row">
+      <span class="option-name">${esc(name)}</span>
+      <div class="option-btns">
+        <button type="button" class="btn-edit-item" onclick="editMasterItem(${idx})">Edit</button>
+        <button type="button" class="btn-del-item" onclick="deleteMasterItem(${idx})">Hapus</button>
+      </div>
     </div>
-  </div>
-`,
+  `
     )
     .join("");
 }
@@ -178,8 +189,7 @@ async function syncMasterToSheet() {
     });
   } catch (err) {
     alert(
-      "Tersimpan di perangkat, tapi gagal sinkron ke Sheet: " +
-        err.message,
+      "Tersimpan di perangkat, tapi gagal sinkron ke Sheet: " + err.message
     );
   }
 }
@@ -201,8 +211,7 @@ window.editMasterItem = async function (index) {
   }
 
   const duplicate = list.some(
-    (item, i) =>
-      i !== index && item.toLowerCase() === nextName.toLowerCase(),
+    (item, i) => i !== index && item.toLowerCase() === nextName.toLowerCase()
   );
   if (duplicate) {
     alert("Nama tersebut sudah ada di daftar.");
@@ -301,6 +310,8 @@ function toSortableKey(raw) {
 }
 
 function compareNewestFirst(a, b) {
+  if (a._pendingSync && !b._pendingSync) return -1;
+  if (!a._pendingSync && b._pendingSync) return 1;
   const ka = toSortableKey(a.tanggal);
   const kb = toSortableKey(b.tanggal);
   if (ka !== kb) return kb.localeCompare(ka);
@@ -335,20 +346,18 @@ function getCurrentMonthItems() {
 
 function renderHeroAndStats() {
   const monthItems = getCurrentMonthItems();
-  const totalExp = monthItems.reduce(
-    (s, x) => s + getRowAmounts(x).exp,
-    0,
-  );
-  const totalInc = monthItems.reduce(
-    (s, x) => s + getRowAmounts(x).inc,
-    0,
-  );
+  const totalExp = monthItems.reduce((s, x) => s + getRowAmounts(x).exp, 0);
+  const totalInc = monthItems.reduce((s, x) => s + getRowAmounts(x).inc, 0);
 
   const needs = monthItems
-    .filter((x) => x.tipeKebutuhan === "Needs")
+    .filter(
+      (x) => String(x.tipeKebutuhan || "").trim().toLowerCase() === "needs"
+    )
     .reduce((s, x) => s + getRowAmounts(x).exp, 0);
   const wants = monthItems
-    .filter((x) => x.tipeKebutuhan === "Wants")
+    .filter(
+      (x) => String(x.tipeKebutuhan || "").trim().toLowerCase() === "wants"
+    )
     .reduce((s, x) => s + getRowAmounts(x).exp, 0);
   const nwTotal = needs + wants;
   const needsPct = nwTotal ? Math.round((needs / nwTotal) * 100) : 0;
@@ -384,11 +393,11 @@ function renderBarGroup(elId, items, key, totalExp) {
     .map(([label, val]) => {
       const pct = totalExp ? Math.round((val / totalExp) * 100) : 0;
       return `
-    <div class="bar-item">
-      <div class="bar-label"><span>${esc(label)} (${pct}%)</span><strong>${fmtRp(val)}</strong></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-    </div>
-  `;
+      <div class="bar-item">
+        <div class="bar-label"><span>${esc(label)} (${pct}%)</span><strong>${fmtRp(val)}</strong></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
     })
     .join("");
 }
@@ -401,15 +410,9 @@ function renderList() {
       const q = searchQuery.toLowerCase();
       const matchQuery =
         !q ||
-        String(item.uraian || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(item.kategori || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(item.sumberDana || "")
-          .toLowerCase()
-          .includes(q);
+        String(item.uraian || "").toLowerCase().includes(q) ||
+        String(item.kategori || "").toLowerCase().includes(q) ||
+        String(item.sumberDana || "").toLowerCase().includes(q);
       return matchPic && matchQuery;
     })
     .sort(compareNewestFirst);
@@ -431,10 +434,7 @@ function renderList() {
   groups.forEach((rows) => {
     const sortedRows = [...rows].sort(compareNewestFirst);
     const rawDate = sortedRows[0].tanggal;
-    const dayExp = sortedRows.reduce(
-      (s, r) => s + getRowAmounts(r).exp,
-      0,
-    );
+    const dayExp = sortedRows.reduce((s, r) => s + getRowAmounts(r).exp, 0);
 
     const cards = sortedRows
       .map((r) => {
@@ -443,34 +443,44 @@ function renderList() {
           ? `<div class="amt-inc">+${inc.toLocaleString("id-ID")}</div>`
           : `<div class="amt-exp">-${exp.toLocaleString("id-ID")}</div>`;
 
+        const statusBadge = r._pendingSync
+          ? `<span class="sync-pending">Waiting sync...</span>`
+          : r._syncError
+            ? `<span class="sync-error">Gagal sync</span>`
+            : "";
+
+        const actionsHtml = r._pendingSync
+          ? `<div class="trx-actions"><span style="font-size:11px;color:#92400e;">Waiting sync...</span></div>`
+          : `<div class="trx-actions">
+               <button class="act-btn" onclick="openEdit(${Number(r.rowNumber)})">Edit</button>
+               <button class="act-btn del" onclick="removeItem(${Number(r.rowNumber)}, '${esc(r.id)}')">Hapus</button>
+             </div>`;
+
         return `
-      <div class="trx-card">
-        <div class="trx-top">
-          <div>
-            <div class="trx-cat">${esc(r.kategori)} (${esc(r.pic)})</div>
-            ${r.uraian ? `<div class="trx-uraian">${esc(r.uraian)}</div>` : ""}
-            <div class="trx-meta">${esc(r.sumberDana)} • ${esc(r.tipeKebutuhan)}${r.catatan ? " • " + esc(r.catatan) : ""}</div>
+        <div class="trx-card">
+          <div class="trx-top">
+            <div>
+              <div class="trx-cat">${esc(r.kategori)} (${esc(r.pic)})${statusBadge}</div>
+              ${r.uraian ? `<div class="trx-uraian">${esc(r.uraian)}</div>` : ""}
+              <div class="trx-meta">${esc(r.sumberDana)} • ${esc(r.tipeKebutuhan)}${r.catatan ? " • " + esc(r.catatan) : ""}</div>
+            </div>
+            ${amountHtml}
           </div>
-          ${amountHtml}
+          ${actionsHtml}
         </div>
-        <div class="trx-actions">
-          <button class="act-btn" onclick="openEdit(${Number(r.rowNumber)})">Edit</button>
-          <button class="act-btn del" onclick="removeItem(${Number(r.rowNumber)}, '${esc(r.id)}')">Hapus</button>
-        </div>
-      </div>
-    `;
+      `;
       })
       .join("");
 
     htmlParts.push(`
-    <div class="date-group">
-      <div class="date-header">
-        <span>${esc(formatTanggalIndo(rawDate))}</span>
-        <span class="date-badge">${dayExp.toLocaleString("id-ID")}</span>
+      <div class="date-group">
+        <div class="date-header">
+          <span>${esc(formatTanggalIndo(rawDate))}</span>
+          <span class="date-badge">${dayExp.toLocaleString("id-ID")}</span>
+        </div>
+        ${cards}
       </div>
-      ${cards}
-    </div>
-  `);
+    `);
   });
 
   listEl.innerHTML = htmlParts.join("");
@@ -535,17 +545,16 @@ async function loadData() {
       }
       refreshFormDropdowns();
       if (
-        document
-          .getElementById("masterBackdrop")
-          .classList.contains("open")
+        document.getElementById("masterBackdrop").classList.contains("open")
       ) {
         renderMasterModal();
       }
     }
 
-    allData = Array.isArray(json.data)
-      ? json.data.sort(compareNewestFirst)
-      : [];
+    const pendingItems = allData.filter((x) => x._pendingSync);
+    const serverItems = Array.isArray(json.data) ? json.data : [];
+    allData = [...pendingItems, ...serverItems].sort(compareNewestFirst);
+    saveCachedTransactions(allData);
     renderHeroAndStats();
     renderList();
   } catch (err) {
@@ -581,9 +590,7 @@ window.openEdit = function (rowNumber) {
   document.getElementById("modalTitle").textContent = "Edit Transaksi";
   document.getElementById("rowNumberInput").value = item.rowNumber;
   document.getElementById("idInput").value = item.id;
-  document.getElementById("tanggalInput").value = toSortableKey(
-    item.tanggal,
-  );
+  document.getElementById("tanggalInput").value = toSortableKey(item.tanggal);
   document.getElementById("kategoriInput").value = item.kategori;
   document.getElementById("uraianInput").value = item.uraian;
 
@@ -593,8 +600,7 @@ window.openEdit = function (rowNumber) {
 
   document.getElementById("picInput").value = item.pic;
   document.getElementById("sumberDanaInput").value = item.sumberDana;
-  document.getElementById("tipeKebutuhanInput").value =
-    item.tipeKebutuhan;
+  document.getElementById("tipeKebutuhanInput").value = item.tipeKebutuhan;
   document.getElementById("catatanInput").value = item.catatan;
 
   document.getElementById("modalBackdrop").classList.add("open");
@@ -655,9 +661,7 @@ document
 
     const isCat = activeMasterTab === "kategori";
     const list = isCat ? masterKategori : masterSumberDana;
-    const exists = list.some(
-      (x) => x.toLowerCase() === val.toLowerCase(),
-    );
+    const exists = list.some((x) => x.toLowerCase() === val.toLowerCase());
     if (exists) {
       alert("Item tersebut sudah ada.");
       return;
@@ -676,20 +680,17 @@ document
     await syncMasterToSheet();
   });
 
-document
-  .getElementById("newMasterInput")
-  .addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      document.getElementById("addMasterItemBtn").click();
-    }
-  });
+document.getElementById("newMasterInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    document.getElementById("addMasterItemBtn").click();
+  }
+});
 
 document
   .getElementById("resetMasterBtn")
   .addEventListener("click", async () => {
-    const label =
-      activeMasterTab === "kategori" ? "kategori" : "sumber dana";
+    const label = activeMasterTab === "kategori" ? "kategori" : "sumber dana";
     if (!confirm(`Kembalikan daftar ${label} ke bawaan awal?`)) return;
 
     if (activeMasterTab === "kategori") {
@@ -733,28 +734,83 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
   });
 });
 
-document
-  .getElementById("trxForm")
-  .addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const saveBtn = document.getElementById("saveBtn");
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Menyimpan...";
+document.getElementById("trxForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-    const payload = Object.fromEntries(new FormData(e.target).entries());
-    payload.action = "save";
+  const payload = Object.fromEntries(new FormData(e.target).entries());
+  payload.action = "save";
 
-    try {
-      await apiPost(payload);
-      document.getElementById("modalBackdrop").classList.remove("open");
-      await loadData();
-    } catch (err) {
-      alert("Gagal menyimpan: " + err.message);
-    } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = "Simpan";
-    }
-  });
+  const isIncome = payload.jenis === "income";
+  const nominalVal = Math.abs(Number(payload.nominal) || 0);
+  const existingRowNumber = Number(payload.rowNumber) || 0;
+  const existingId = String(payload.id || "").trim();
+  const tempKey = `TEMP-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const optimisticItem = {
+    rowNumber: existingRowNumber || Number.MAX_SAFE_INTEGER,
+    id: existingId || tempKey,
+    tanggal: payload.tanggal,
+    kategori: payload.kategori,
+    uraian: payload.uraian || "",
+    pengeluaran: isIncome ? 0 : nominalVal,
+    pemasukan: isIncome ? nominalVal : 0,
+    pic: payload.pic || "Together",
+    sumberDana: payload.sumberDana || "",
+    tipeKebutuhan: payload.tipeKebutuhan || "Needs",
+    catatan: payload.catatan || "",
+    _pendingSync: true,
+    _syncError: false,
+    _tempKey: tempKey,
+  };
+
+  if (existingRowNumber > 0) {
+    allData = allData.map((item) =>
+      Number(item.rowNumber) === existingRowNumber ? optimisticItem : item
+    );
+  } else {
+    allData = [optimisticItem, ...allData];
+  }
+
+  allData.sort(compareNewestFirst);
+  renderHeroAndStats();
+  renderList();
+  document.getElementById("modalBackdrop").classList.remove("open");
+
+  try {
+    const result = await apiPost(payload);
+    allData = allData.map((item) =>
+      item._tempKey === tempKey
+        ? {
+            ...item,
+            rowNumber: Number(result && result.rowNumber) || item.rowNumber,
+            id: (result && result.id) || item.id,
+            _pendingSync: false,
+            _syncError: false,
+          }
+        : item
+    );
+    saveCachedTransactions(allData);
+    renderHeroAndStats();
+    renderList();
+  } catch (err) {
+    allData = allData.map((item) =>
+      item._tempKey === tempKey
+        ? { ...item, _pendingSync: false, _syncError: true }
+        : item
+    );
+    renderList();
+    alert(
+      "Transaksi tampil lokal, tapi gagal sync ke Google Sheets: " + err.message
+    );
+  }
+});
+
+const cachedTrx = loadCachedTransactions();
+if (cachedTrx.length) {
+  allData = cachedTrx.sort(compareNewestFirst);
+  renderHeroAndStats();
+  renderList();
+}
 
 refreshFormDropdowns("", masterSumberDana[0] || "");
 loadData();
