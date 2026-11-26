@@ -611,3 +611,27 @@ body {
 .icon-btn.syncing .sync-icon {
   animation: spinSync 0.8s linear infinite;
 }
+
+.sync-pending {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #92400e;
+  vertical-align: middle;
+}
+
+.sync-error {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #991b1b;
+  vertical-align: middle;
+}
